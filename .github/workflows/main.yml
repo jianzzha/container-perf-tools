@@ -1,0 +1,61 @@
+name:  Image CI
+
+on:
+  push:
+    branches: [ master ]
+    paths: standalone-trafficgen/Dockerfile-py3
+  pull_request:
+    branches: [ master ]
+    paths: standalone-trafficgen/Dockerfile-py3
+
+jobs:
+  build:
+    runs-on: [self-hosted, trafficgen]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Create podgen
+      run: |
+           present=$(podman pod list | grep trafficgen | awk '{print $3}')
+           if [ "$present" == "Running" ] || [ "$present" == "Created" ]; then
+           echo "Pod trafficgen already exists"
+           else
+           podman pod create -p 50051:50051 -n trafficgen
+           fi
+
+
+    - name: Build container image, run container and start server
+      run: |
+           podman build . --file standalone-trafficgen/Dockerfile-py3 --tag trafficgen:latest
+           podman run -d --rm --privileged -v /dev:/dev -v /sys:/sys -v /lib/modules:/lib/modules --cpuset-cpus 4-11 -e pci_list=0000:03:00.0,0000:03:00.1 --pod trafficgen  trafficgen:latest /root/trafficgen_entry.sh server
+           conId=$(podman ps | grep trafficgen | awk '{print $1}' | tail -n 1)
+           echo "Waiting for trex-server to start...."
+           flag="true"
+           end=$((SECONDS+50))
+           while [ $SECONDS -lt $end  ]
+           do
+           if  podman logs $conId | grep -q "trex-server is ready"
+           then
+                flag="false"
+                sleep 2
+                break
+           fi
+           done
+
+           if [ "$flag" == "true" ]
+           then
+           echo "Failed to start trex server ..."
+           exit
+           else
+           echo "Trex-server has started"
+           fi
+           python3 standalone-trafficgen/client.py --server-addr localhost --server-port 50051 --dst-macs ae:33:1d:ee:ba:15,82:c4:b6:f5:34:b5 start
+
+
+
+    - name: Clean up
+      if : ${{ always() }}
+      run: |
+           conId=$(podman ps | grep trafficgen | awk '{print $1}' | tail -n 1)
+           podman kill $conId
+           echo "Deleted container"
+
