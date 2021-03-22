@@ -51,6 +51,13 @@ jobs:
            python3 standalone-trafficgen/client.py --server-addr localhost --server-port 50051 --dst-macs ae:33:1d:ee:ba:15,82:c4:b6:f5:34:b5 start
 
 
+    - name: Build testpmd client
+      run: |
+           cd standalone-testpmd/cmd/client-example
+           go build
+           if [ ! -e client-example ]; then
+               exit 1
+           fi
 
     - name: Clean up
       if : ${{ always() }}
